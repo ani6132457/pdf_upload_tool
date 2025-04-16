@@ -1,39 +1,35 @@
 import streamlit as st
-import pdfplumber
 import pandas as pd
+from pdf2image import convert_from_bytes
+import pytesseract
+import os
 import io
 
-st.title("📄 PDF 文字抽出 & CSVダウンロード")
+# Ghostscriptのパスを通す（インストール先に合わせて変更しないでOK）
+os.environ["PATH"] += os.pathsep + r"C:\Program Files\gs\gs10.05.0\bin"
 
-# アップロード
-uploaded_file = st.file_uploader("PDFファイルをアップロードしてください", type=["pdf"])
+# Tesseractのパス（インストール先に合わせて変更）
+pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
 
-if uploaded_file is not None:
-    # テキスト格納用リスト
-    text_lines = []
+st.title("🧠 スキャンPDF OCR抽出ツール")
+uploaded_file = st.file_uploader("📤 スキャンPDFファイルをアップロードしてください", type=["pdf"])
 
-    with pdfplumber.open(uploaded_file) as pdf:
-        for page in pdf.pages:
-            text = page.extract_text()
-            if text:
-                lines = text.split('\n')
-                text_lines.extend(lines)
+if uploaded_file:
+    with st.spinner("OCR処理中...お待ちください！"):
+        # PDF → 画像変換
+        images = convert_from_bytes(uploaded_file.read(), dpi=300)
+        text_data = []
 
-    # 表形式に整形（1列CSV）
-    df = pd.DataFrame(text_lines, columns=["抽出テキスト"])
+        for i, image in enumerate(images):
+            text = pytesseract.image_to_string(image, lang="jpn")
+            text_data.append([f"{i+1}ページ", text])
 
-    # 表示
-    st.write("🔍 抽出されたテキスト内容:")
-    st.dataframe(df)
+        df = pd.DataFrame(text_data, columns=["ページ", "抽出テキスト"])
+        st.success("✅ OCR抽出完了！")
 
-    # ダウンロード処理
-    csv_buffer = io.StringIO()
-    df.to_csv(csv_buffer, index=False)
-    csv_data = csv_buffer.getvalue().encode("utf-8-sig")
+        st.subheader("📋 抽出結果プレビュー")
+        st.dataframe(df)
 
-    st.download_button(
-        label="📥 CSVとしてダウンロード",
-        data=csv_data,
-        file_name="extracted_text.csv",
-        mime="text/csv"
-    )
+        # CSV出力
+        csv = df.to_csv(index=False).encode("utf-8-sig")
+        st.download_button("📥 CSVでダウンロード", csv, file_name="ocr_output.csv", mime="text/csv")
